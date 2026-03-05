@@ -104,20 +104,18 @@ public class ProductServiceImpl implements ProductService {
         // Calculate popularity score for each product
         Map<String, Integer> productPopularityMap = new HashMap<>();
 
-        for (Product product : allProducts) {
-            // Get all orders to count this product
-            List<Order> allOrders = orderRepository.findAll();
+        // Optimization: Fetch all orders once (moved outside product loop)
+        // Before: 300+ queries (1 query per product), After: 2 queries total
+        List<Order> allOrders = orderRepository.findAll();
 
-            int popularityScore = 0;
-            for (Order order : allOrders) {
-                for (OrderItem item : order.getItems()) {
-                    if (item.getProductId().equals(product.getId())) {
-                        popularityScore += item.getQuantity();
-                    }
-                }
+        // Build popularity map by iterating through orders
+        for (Order order : allOrders) {
+            for (OrderItem item : order.getItems()) {
+                String productId = item.getProductId();
+                int quantity = item.getQuantity();
+                productPopularityMap.put(productId,
+                    productPopularityMap.getOrDefault(productId, 0) + quantity);
             }
-
-            productPopularityMap.put(product.getId(), popularityScore);
         }
 
         // Sort by popularity and get top 20
