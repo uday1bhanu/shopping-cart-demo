@@ -1,0 +1,61 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: shopping-cart-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: shopping_cart
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - shopping-cart-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/shopping_cart --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shopping-cart-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - shopping-cart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shopping-cart-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - app
+    networks:
+      - shopping-cart-network
+
+networks:
+  shopping-cart-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
