@@ -1,5 +1,6 @@
 package com.shopping.cart.service;
 
+import com.shopping.cart.aspect.PerformanceMonitored;
 import com.shopping.cart.dto.response.ProductResponse;
 import com.shopping.cart.exception.ResourceNotFoundException;
 import com.shopping.cart.model.Order;
@@ -91,119 +92,51 @@ public class ProductServiceImpl implements ProductService {
         log.info("Product deleted successfully: {}", productId);
     }
 
-    /**
-     * INTENTIONALLY BUGGY IMPLEMENTATION - N+1 Query Problem
-     *
-     * This method demonstrates a classic database performance anti-pattern.
-     * For each of the 300 products, it makes multiple separate database queries:
-     * 1. Fetch all products (1 query)
-     * 2. For EACH product, fetch ALL orders and count occurrences (300 queries)
-     * 3. For EACH product, fetch product details again (300 more queries)
-     *
-     * Total: 1 + 300 + 300 = 601 database queries!
-     * Expected execution time: 5-15+ seconds
-     *
-     * Proper implementation would use MongoDB aggregation pipeline with $lookup and $group
-     */
     @Override
+    @PerformanceMonitored(thresholdMs = 3000, errorMessage = "Unable to load the recommendations!")
     public List<ProductResponse> getTrendingProducts() {
-        long startTime = System.currentTimeMillis();
-        int queryCount = 0;
+        log.info("Fetching trending products based on order history");
 
-        log.warn("⚠️ Starting TRENDING PRODUCTS query - This will be VERY SLOW! ⚠️");
+        // Fetch all products
+        List<Product> allProducts = productRepository.findAll();
+        log.info("Loaded {} products for trending analysis", allProducts.size());
 
-        try {
-            // Query 1: Fetch ALL products from database
-            log.warn("Query #{}: Fetching ALL products from database...", ++queryCount);
-            List<Product> allProducts = productRepository.findAll();
-            log.warn("Loaded {} products. Now calculating popularity for each one individually...", allProducts.size());
+        // Calculate popularity score for each product
+        Map<String, Integer> productPopularityMap = new HashMap<>();
 
-            // Create a map to store product popularity scores
-            Map<String, Integer> productPopularityMap = new HashMap<>();
+        for (Product product : allProducts) {
+            // Get all orders to count this product
+            List<Order> allOrders = orderRepository.findAll();
 
-            // THE BUG: For each product, fetch ALL orders and count occurrences
-            // This creates a massive N+1 query problem!
-            for (int i = 0; i < allProducts.size(); i++) {
-                Product product = allProducts.get(i);
-
-                // Query N+1: Fetch ALL orders for EACH product
-                log.warn("Query #{}: Fetching ALL orders to count product '{}' (ID: {}) [{}/{}]",
-                        ++queryCount, product.getName(), product.getId(), i + 1, allProducts.size());
-
-                List<Order> allOrders = orderRepository.findAll();
-
-                // Count how many times this product appears in orders
-                int popularityScore = 0;
-                for (Order order : allOrders) {
-                    for (OrderItem item : order.getItems()) {
-                        if (item.getProductId().equals(product.getId())) {
-                            popularityScore += item.getQuantity();
-                        }
+            int popularityScore = 0;
+            for (Order order : allOrders) {
+                for (OrderItem item : order.getItems()) {
+                    if (item.getProductId().equals(product.getId())) {
+                        popularityScore += item.getQuantity();
                     }
                 }
-
-                productPopularityMap.put(product.getId(), popularityScore);
-
-                // Simulate additional processing delay (network latency, query overhead)
-                try {
-                    Thread.sleep(10); // 10ms per product = 3 seconds for 300 products
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
             }
 
-            // THE BUG CONTINUES: Instead of using the products we already have,
-            // fetch each product AGAIN from database
-            List<ProductResponse> trendingProducts = new ArrayList<>();
-
-            // Sort products by popularity
-            List<Map.Entry<String, Integer>> sortedProducts = productPopularityMap.entrySet()
-                    .stream()
-                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                    .limit(20)
-                    .collect(Collectors.toList());
-
-            for (Map.Entry<String, Integer> entry : sortedProducts) {
-                // Query N+1 AGAIN: Fetch product details individually instead of reusing data!
-                log.warn("Query #{}: Fetching product details for ID: {}", ++queryCount, entry.getKey());
-
-                Optional<Product> productOpt = productRepository.findById(entry.getKey());
-                if (productOpt.isPresent()) {
-                    trendingProducts.add(mapToProductResponse(productOpt.get()));
-                }
-            }
-
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-
-            log.error("════════════════════════════════════════════════════════════════");
-            log.error("🔥 PERFORMANCE DISASTER DETECTED! 🔥");
-            log.error("════════════════════════════════════════════════════════════════");
-            log.error("Total execution time: {} ms ({} seconds)", duration, duration / 1000.0);
-            log.error("Total database queries executed: {}", queryCount);
-            log.error("Average time per query: {} ms", duration / queryCount);
-            log.error("Products processed: {}", allProducts.size());
-            log.error("════════════════════════════════════════════════════════════════");
-
-            // If it takes more than 3 seconds, throw an exception with stack trace
-            if (duration > 3000) {
-                RuntimeException performanceException = new RuntimeException(
-                    "Unable to load the recommendations!"
-                );
-                log.error("Unable to load the recommendations! Query performance degradation detected! " +
-                         "Execution time: {} ms, Database queries executed: {}, Average query time: {} ms",
-                         duration, queryCount, duration / queryCount, performanceException);
-                throw performanceException;
-            }
-
-            return trendingProducts;
-
-        } catch (Exception e) {
-            long endTime = System.currentTimeMillis();
-            log.error("Error in getTrendingProducts after {} ms and {} queries",
-                    endTime - startTime, queryCount, e);
-            throw e;
+            productPopularityMap.put(product.getId(), popularityScore);
         }
+
+        // Sort by popularity and get top 20
+        List<Map.Entry<String, Integer>> sortedProducts = productPopularityMap.entrySet()
+                .stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(20)
+                .collect(Collectors.toList());
+
+        // Fetch product details for trending items
+        List<ProductResponse> trendingProducts = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : sortedProducts) {
+            Optional<Product> productOpt = productRepository.findById(entry.getKey());
+            if (productOpt.isPresent()) {
+                trendingProducts.add(mapToProductResponse(productOpt.get()));
+            }
+        }
+
+        return trendingProducts;
     }
 
     private ProductResponse mapToProductResponse(Product product) {
