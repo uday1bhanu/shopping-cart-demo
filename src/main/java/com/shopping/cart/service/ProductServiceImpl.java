@@ -93,7 +93,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @PerformanceMonitored(thresholdMs = 3000, errorMessage = "Unable to load the recommendations!")
+    @PerformanceMonitored(thresholdMs = 3000, errorMessage = "We're having trouble loading recommendations right now. Please try again in a moment.")
     public List<ProductResponse> getTrendingProducts() {
         log.info("Fetching trending products based on order history");
 

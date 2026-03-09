@@ -40,14 +40,14 @@ const TrendingProducts = () => {
 
       // Show warning if it took too long
       if (duration > 3) {
-        setError('Unable to load the recommendations!');
+        setError('We\'re having trouble loading recommendations right now. Please try again in a moment.');
         setShowErrorModal(true);
       }
     } catch (err) {
       clearInterval(interval);
       setLoading(false);
 
-      setError('Unable to load the recommendations!');
+      setError('We\'re having trouble loading recommendations right now. Please try again in a moment.');
       setShowErrorModal(true);
 
       console.error('Error fetching trending products:', err);
