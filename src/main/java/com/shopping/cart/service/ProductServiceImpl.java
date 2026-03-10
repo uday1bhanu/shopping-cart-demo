@@ -101,13 +101,14 @@ public class ProductServiceImpl implements ProductService {
         List<Product> allProducts = productRepository.findAll();
         log.info("Loaded {} products for trending analysis", allProducts.size());
 
+        // Fetch all orders once (moved outside loop to fix N+1 query problem)
+        List<Order> allOrders = orderRepository.findAll();
+        log.info("Loaded {} orders for trending analysis", allOrders.size());
+
         // Calculate popularity score for each product
         Map<String, Integer> productPopularityMap = new HashMap<>();
 
         for (Product product : allProducts) {
-            // Get all orders to count this product
-            List<Order> allOrders = orderRepository.findAll();
-
             int popularityScore = 0;
             for (Order order : allOrders) {
                 for (OrderItem item : order.getItems()) {
